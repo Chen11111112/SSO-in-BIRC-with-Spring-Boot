@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>SSO 登入整合測試</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; line-height: 1.6; }
+        .box { border: 1px solid #ccc; padding: 20px; margin-top: 20px; border-radius: 8px; background-color: #f9f9f9; }
+        button { padding: 10px 20px; cursor: pointer; background-color: #4285f4; color: white; border: none; border-radius: 4px; font-size: 16px; }
+        button:hover { background-color: #357ae8; }
+        textarea, pre { width: 100%; box-sizing: border-box; margin-top: 10px; }
+        pre { background: #eee; padding: 10px; border-radius: 4px; min-height: 60px; }
+    </style>
+</head>
+<body>
+    <h2>Campus Activity - SSO 登入模擬測試</h2>
+
+    <div class="box">
+        <h3>步驟一：導向 SSO 登入</h3>
+        <p>不再使用 Google 的前端腳本，而是直接導向我們自己的 SSO 後端進行授權。</p>
+        <button onclick="startSsoLogin()">使用系統 SSO 登入</button>
+    </div>
+
+    <div class="box" id="callbackSection" style="display: none;">
+        <h3>步驟二：取得授權碼 (Code)</h3>
+        <p>你已成功從 SSO 登入並跳轉回來！取得的一次性授權碼如下：</p>
+        <textarea id="codeDisplay" rows="2" readonly></textarea>
+
+        <h3 style="margin-top: 20px;">步驟三：拿 Code 換取使用者資訊</h3>
+        <p style="color: #d93025; font-size: 14px;">
+            <b>注意：</b>實務上，前端只需把 Code 傳給 Campus Activity 後端，由後端發起驗證。<br>
+            這裡為了方便測試，我們直接在前端模擬打 API 去向 SSO 要資料：
+        </p>
+        <button onclick="verifyCode()" style="background-color: #34a853;">驗證 Code 取回信箱</button>
+        <pre id="userInfo">等待驗證...</pre>
+    </div>
+
+    <script>
+        // 設定你 SSO 系統運行的 Base URL (需與本地啟動的 port 一致)
+        const SSO_BASE_URL = 'https://sso.ntubimdbirc.tw';
+
+        /**
+         * 1. 發起登入跳轉
+         */
+        function startSsoLogin() {
+            // 取得本網頁當前的網址 (去掉後面的參數)，作為登入成功後的跳轉位置
+            const redirectUrl = 'http://localhost:3000';
+            
+            // 組合出跳轉到 SSO prelogin 的完整網址
+            const targetUrl = `${SSO_BASE_URL}/sso/prelogin?redirect_url=${redirectUrl}`;
+            console.log("跳轉至 SSO:", targetUrl);
+            
+            // 執行跳轉
+            window.location.href = targetUrl;
+        }
+
+        /**
+         * 2. 頁面載入時，檢查網址列是否帶有 SSO 傳回來的 code
+         */
+        window.onload = function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const code = urlParams.get('code');
+            const error = urlParams.get('error');
+
+            if (error) {
+                alert("SSO 登入失敗，錯誤代碼: " + error);
+            } else if (code) {
+                // 顯示步驟二的區塊
+                document.getElementById('callbackSection').style.display = 'block';
+                document.getElementById('codeDisplay').value = code;
+
+                // (可選) 為了保持網址乾淨，把 ?code=xxx 從網址列隱藏掉
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        };
+
+        /**
+         * 3. 模擬後端拿 Code 去跟 SSO 驗證
+         */
+        async function verifyCode() {
+            const code = document.getElementById('codeDisplay').value;
+            const userInfoBlock = document.getElementById('userInfo');
+
+            if (!code) {
+                alert("沒有可用的 Code");
+                return;
+            }
+
+            userInfoBlock.innerText = "正在向 SSO 驗證 Code，請稍候...";
+
+            try {
+                // 向 SSO 的 /verify-code API 發送請求
+                const response = await fetch(`${SSO_BASE_URL}/sso/verify-code`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'text/plain',
+                        // 【安全警告】在真實專案中，Client Secret 絕對不能寫在 HTML(前端) 裡！
+                        // 這裡寫死只是為了讓你本地測試能「一條龍」跑完流程。
+                        'X-Client-Id': 'campus-application',
+                        'X-Client-Secret': '=IdJ4KH<Un9{jiI)' 
+                    },
+                    body: code // code 是純文字格式
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    userInfoBlock.innerText = "✅ 驗證成功！\n" + JSON.stringify(data, null, 2);
+                } else {
+                    userInfoBlock.innerText = "❌ 驗證失敗：\n" + JSON.stringify(data, null, 2);
+                }
+            } catch (err) {
+                userInfoBlock.innerText = "請求發生錯誤：" + err.message;
+            }
+        }
+    </script>
+</body>
+</html>
